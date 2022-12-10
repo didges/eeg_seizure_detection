@@ -50,9 +50,9 @@ def features_extraction(sample):
 
 
 if __name__ == '__main__':
-    dataset_path = "../physionet.org/files/chbmit/1.0.0/"
+    dataset_path = "../EEG/physionet.org/files/chbmit/1.0.0/"
 
-    # Получение таргетов
+    # Получение таргетов/home/didges/ds_learning/seizures/dataset_window.csv
     all_targets = open(f"{dataset_path}/RECORDS", "r").read().split("\n")[:-1]
     seizures_targets = open(f"{dataset_path}/RECORDS-WITH-SEIZURES", "r").read().split("\n")[:-1]
 
@@ -76,8 +76,9 @@ if __name__ == '__main__':
     data = pd.DataFrame(data=None, columns=['name'] + data_features.tolist())
     data['target'] = None
 
+    print(np.where(seizures_targets == 'chb03/chb03_17.edf', seizures_targets))
     # Так как задача вычислительно трудозатратная решено было ее распараллелить
-    with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
-        p.map_async(features_extraction, all_targets, callback=end_extraction)
-        p.close()
-        p.join()
+    #with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
+    #    p.map_async(features_extraction, all_targets, callback=end_extraction)
+    #    p.close()
+    #    p.join()

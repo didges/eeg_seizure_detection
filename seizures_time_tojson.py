@@ -19,7 +19,7 @@ if __name__ == "__main__":
         if n_seizures == 1:
             start_time = int(sample_summary.split("Start Time:")[-1].split('seconds')[0])
             end_time = int(sample_summary.split("End Time:")[-1].split('seconds')[0])
-            data[seizure] = {"start_time": start_time, "end_time": end_time}
+            data[seizure] = {"start_time": [start_time], "end_time": [end_time]}
         elif n_seizures > 1:
             start_time_arr, end_time_arr = [], []
             for i in range(1, n_seizures+1):
