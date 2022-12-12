@@ -4,9 +4,14 @@ import json
 import pyedflib
 import multiprocessing
 import pyeeg
+import os
 
 FREQUENCY = 256
 NUM_FEATURES_FOR_CHANEL = 31
+WINDOW_SIZE = 30
+CHANELS = ['FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1', 'FP2-F4', 'F4-C4', 'C4-P4',
+           'P4-O2', 'FP2-F8', 'F8-T8', 'T8-P8', 'P8-O2', 'FZ-CZ', 'CZ-PZ', 'P7-T7', 'T7-FT9', 'FT9-FT10', 'FT10-T8']
+SEIZURE_JSON_PATH = 'seizures_time.json'
 
 
 def metrics(mat):
@@ -49,21 +54,12 @@ def metrics(mat):
     return (DFA, HFD, SVD_Entropy, Fisher_Information, PFD) + tuple(pd_f)
 
 
-def window_border(len_signal, wind_size=FREQUENCY * 30):
-    indices = np.arange(len_signal)
-    for start in range(0, len_signal, wind_size):
-        end = min(start + wind_size, len_signal)
-        window_idx = indices[start:end]
-        yield window_idx
-
-
 def end_extraction(response):
     counter = 0
     try:
         for r in response:
             for el in r:
                 counter += 1
-                print(counter)
                 data.loc[len(data.index)] = el
         print(f"{counter} observations will be write")
         data.to_csv('dataset_window_31metrics.csv')
@@ -71,42 +67,66 @@ def end_extraction(response):
         print(f"EXCEPTION:{e}")
 
 
+def select_wind(sample, end):
+    seizure_data = json.load(open(SEIZURE_JSON_PATH))
+    is_seizure = np.array([], dtype=int)
+    if sample in seizure_data.keys():
+        selected_windows = np.array([], dtype=int)
+        seiz_windows = np.array(seizure_data[sample]['start_time'])
+        seiz_windows_end = np.array(seizure_data[sample]['end_time'])
+        rand_added = 0
+        while rand_added < 5:
+            candidate = np.random.randint(0, high=end-WINDOW_SIZE*FREQUENCY)
+            fits = True
+            for s in range(len(seiz_windows)):
+                if seiz_windows_end[s] > s > seiz_windows[s]:
+                    fits = False
+            if fits:
+                selected_windows = np.append(selected_windows, candidate)
+                is_seizure = np.append(is_seizure, 0)
+                rand_added += 1
+        selected_windows = np.append(selected_windows, seiz_windows*256)
+        is_seizure = np.append(is_seizure, [1 for _ in range(len(seiz_windows))])
+    else:
+        selected_windows = np.random.randint(0, high=end-WINDOW_SIZE*FREQUENCY, size=5, dtype=int)
+        is_seizure = np.append(is_seizure, [0 for _ in range(len(selected_windows))])
+
+    return selected_windows, is_seizure
+
+
+def read_sig(sample_path):
+    data_sample = pyedflib.EdfReader(sample_path)
+    labels = data_sample.getSignalLabels()
+    sample_channels = dict()
+    if set(labels).intersection(set(CHANELS)) == set(CHANELS):
+        for i, label in enumerate(labels):
+            if label in set(CHANELS):
+                sample_channels[label] = data_sample.readSignal(i)
+
+    return sample_channels
+
+
 def features_extraction(sample):
     try:
-        data_sample = pyedflib.EdfReader(f"{dataset_path}/{sample}")
-        labels = data_sample.getSignalLabels()
-        sample_channels = dict()
-        if set(labels).intersection(set(chanels)) == set(chanels):
-            for i, label in enumerate(labels):
-                if label in set(chanels):
-                    sample_channels[label] = data_sample.readSignal(i)
-            selected_windows = np.random.randint(0, high=len(sample_channels[chanels[0]]) - 30 * 256, size=5)
-            if sample in seizures_targets:
-                selected_windows = np.append(selected_windows, np.array(seizure_data[sample]['start_time']) * FREQUENCY, axis=0)
-            selected_windows.sort()
-            ret = []
-            for sel in selected_windows:
-                for window_index in window_border(len(sample_channels[chanels[0]])):
-                    if window_index[0] <= sel <= window_index[-1]:
-                        features = np.array([])
-                        sample_features = {'name': f"{sample}_{window_index[0]}"}
-                        for ch in chanels:
-                            features = np.append(features, metrics(sample_channels[ch][window_index]), axis=0)
-                        for i, v in enumerate(features.tolist()):
-                            sample_features[f'v{i}'] = v
+        np.random.seed(int(os.getpid()*14))
+        sample_channels = read_sig(f"{dataset_path}/{sample}")
+        if len(sample_channels):
+            selected_windows, is_seizure = select_wind(sample, len(sample_channels[CHANELS[0]]))
+            result = []
+            for sel, is_seiz in zip(selected_windows, is_seizure):
+                indices = np.arange(sel, sel + WINDOW_SIZE*FREQUENCY, dtype=int)
+                features = np.array([])
+                sample_features = {'name': f"{sample}_{sel}"}
+                for ch in CHANELS:
+                    features = np.append(features, metrics(sample_channels[ch][indices]), axis=0)
+                for i, feature in enumerate(features.tolist()):
+                    sample_features[f'f{i}'] = feature
 
-                        if sample in seizures_targets:
-                            for seiz in seizure_data[sample]['start_time']:
-                                if window_index[0] / FREQUENCY <= seiz <= window_index[-1] / FREQUENCY:
-                                    sample_features['target'] = 1
-                                else:
-                                    sample_features['target'] = 0
-                        else:
-                            sample_features['target'] = 0
+                sample_features['target'] = is_seiz
 
-                        print(sample_features['name'])
-                        ret.append(sample_features)
-            return ret
+                print(sample_features['name'])
+                result.append(sample_features)
+            return result
         else:
             return []
     except Exception as e:
@@ -115,14 +135,8 @@ def features_extraction(sample):
 
 if __name__ == '__main__':
     dataset_path = "../EEG/physionet.org/files/chbmit/1.0.0/"
-
-    chanels = ['FP1-F7', 'F7-T7', 'T7-P7', 'P7-O1', 'FP1-F3', 'F3-C3', 'C3-P3', 'P3-O1', 'FP2-F4', 'F4-C4', 'C4-P4',
-               'P4-O2', 'FP2-F8', 'F8-T8', 'T8-P8', 'P8-O2', 'FZ-CZ', 'CZ-PZ', 'P7-T7', 'T7-FT9', 'FT9-FT10', 'FT10-T8']
-
     all_samples = open(f"{dataset_path}/RECORDS", "r").read().split("\n")[:-1]
-    seizure_data = json.load(open("seizures_time.json"))
-    seizures_targets = seizure_data.keys()
-    data_features = np.array([[f'v{i}'] for i in range(NUM_FEATURES_FOR_CHANEL*22)]).reshape(-1)
+    data_features = np.array([[f'f{i}'] for i in range(NUM_FEATURES_FOR_CHANEL*22)]).reshape(-1)
     data = pd.DataFrame(data=None, columns=['name'] + data_features.tolist())
     data['target'] = None
 
