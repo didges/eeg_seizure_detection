@@ -55,6 +55,9 @@ class SeizureModel:
             indices = np.arange(w, w + WINDOW_SIZE * FREQUENCY, dtype=int)
             for ch in CHANELS:
                 data = np.append(data, decimate_signal(self.sig[ch][indices], self.K), axis=0)
+            for ch in CHANELS:
+                data = np.append(data, metrics(self.sig[ch][indices]), axis=0)    
+            
             detected_start_time.append(w//FREQUENCY + int(self.reg_model.predict(data)))
 
         return detected_start_time
@@ -73,8 +76,8 @@ class SeizureModel:
 
 
 if __name__ == '__main__':
-    s = "/home/didges/ds_learning/EEG/physionet.org/files/chbmit/1.0.0/chb01/chb01_03.edf"
-    model = SeizureModel('window.cbm', 'start_time.cbm')
-    model.set_overlap(15)
+    s = "/home/didges/ds_learning/EEG/physionet.org/files/chbmit/1.0.0/chb04/chb04_28.edf"
+    model = SeizureModel('window_detection.cbm', 'start_time.cbm')
+    #model.set_overlap(15)
     model.predict(s)
 
